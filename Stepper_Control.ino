@@ -20,14 +20,14 @@ U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, U8X8_PIN_NONE); // 128x64 OLED
 
 
 //RFM69 Setup
-#include <SPI.h>
+/*#include <SPI.h>
 #include <RH_RF69.h>
 #include <RHReliableDatagram.h>
 #define CLIENT_ADDRESS 1
 #define SERVER_ADDRESS 2
 RH_RF69 driver;
 RHReliableDatagram manager(driver, SERVER_ADDRESS);
-uint8_t buf[RH_RF69_MAX_MESSAGE_LEN];
+uint8_t buf[RH_RF69_MAX_MESSAGE_LEN];*/
 
 /*
 #define RF69_FREQ 433.0
@@ -81,8 +81,9 @@ bool statusBool = 0;
 unsigned long statusOn = 0;
 unsigned long statusOff = 0;
 
+unsigned long buttonTime = 0;
 unsigned long loadTime = 0;
-float rpm = 0;
+float rpm = 100;
 int force = 0;
 double hp = 0;
 byte waterStatus = 0;
@@ -221,6 +222,21 @@ buildDisplay();
 //transmitData();
 
 
+if(digitalRead(upPin) == HIGH){
+  if(millis() - selectTime > 500){
+    setRPM += 5;
+    delay(80);
+  }
+}
+
+else if(digitalRead(downPin) == HIGH){
+  if(millis() - selectTime > 500){
+    setRPM -= 5;
+    delay(80);
+  }
+}
+
+
  if (runMode == 0){ // Reversed/Reversing
 
     if(digitalRead(limitSwitch) != LOW){
@@ -250,8 +266,9 @@ buildDisplay();
       else if (rpm > commandedRPM /*&& rpm > minRPM*/){
         Serial.println("rpm>commanded");
         water();
-        
-        if(abs(rpm-commandedRPM) < 8){
+
+        // Pauses stepper when near target to limit overshooting the target
+        if(abs(rpm-commandedRPM) < 10){
           
           if(abs(millis() - loadTime) > 3000){
             loadTime = millis();
@@ -259,7 +276,7 @@ buildDisplay();
           }
           
           else if(abs(millis() - loadTime) > 2000){
-          load();
+            load();
           }
           
         }
@@ -360,12 +377,14 @@ void status(){
 }
 
 void displayButton(){
+  if(millis() - buttonTime > 200){
+    buttonTime = millis();
     displaySelect++;
     
     if(displaySelect == 5){
       displaySelect = 1;
       }
-    }
+    }}
 
 
 void stopRun(){
@@ -401,16 +420,19 @@ void coastRun(){
 }
 
 void upArrow(){
-  setRPM += 5;
-  selectTime = millis();
+  if(millis()-selectTime > 100){
+    setRPM += 5;
+    selectTime = millis();
   //selectBit = true;
   
   if (displaySelect != 3){selectBit = true;}
   
   previousDisplay = displaySelect;
+  }
 }
 
 void downArrow(){
+  if(millis()-selectTime > 100){
   if(setRPM > 5){
     setRPM = setRPM - 5;
   }
@@ -419,15 +441,17 @@ void downArrow(){
   if (displaySelect != 3){selectBit = true;
   }
   previousDisplay = displaySelect;
-  
+  }
 }
 
 void select(){
+  if(millis() - buttonTime > 0){
+  buttonTime = millis();
   if(displaySelect == 3){
     commandedRPM = setRPM;
   }
   //selectTime += 2000;
-}
+}}
 
 void releaseStepper(){
   digitalWrite(disableStepper, HIGH);
@@ -508,7 +532,7 @@ void buildDisplay(){
         
         displaySelect = 3;
       }
-      else if (millis() - selectTime > 3000 && selectBit == true){
+      else if (millis() - selectTime > 5000 && selectBit == true){
         selectBit = false;
         displaySelect = previousDisplay;
       }
