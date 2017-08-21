@@ -83,7 +83,7 @@ unsigned long statusOff = 0;
 
 unsigned long buttonTime = 0;
 unsigned long loadTime = 0;
-float rpm = 100;
+float rpm = 0;
 int force = 0;
 double hp = 0;
 byte waterStatus = 0;
@@ -107,7 +107,8 @@ volatile int count = 0;//freqmeasure
 //volatile int recTime = 0;
 //volatile double RPMarray[8];
 //volatile int RPMsize = 0;
-const byte resolution = 19; // pulses per revolution: 17 for PB, else for test
+const byte resolution = 17; // pulses per revolution: 17 for PB, else for test
+unsigned long freqTime = 0;
 
 volatile byte runMode = 2;
 
@@ -198,23 +199,31 @@ void setup() {
 
 void loop() {
   status();
-//Serial.println("asdfasdf");
+
+
+
   if (FreqMeasure.available()) {
-    // average several reading together
+    freqTime = millis();
+    // average several readings together
     sum = sum + FreqMeasure.read();
     count = count + 1;
-    if (count > 17) {
+    if (count >= resolution) {
+      //double freq2 = .0000001416666666 * (sum / count);
+      //Serial.print("freq2 is ");
+      //Serial.println(freq2);
       float frequency = FreqMeasure.countToFrequency(sum / count);
+      Serial.print("Frequency is ");
       Serial.println(frequency);
       sum = 0;
       count = 0;
-      rpm = ((float)frequency * 180.0)/resolution;
+      rpm = (((float)frequency)*60)/resolution; // freq in hz, 60 s/min, cycles per revolution
       Serial.print("RPM is ");
       Serial.println(rpm);
-      if(rpm<10){
-        rpm = 0;
-      }
     }
+  }
+
+  if(millis()-freqTime > 1000){
+    rpm = 0;
   }
   
 water();
@@ -268,14 +277,14 @@ else if(digitalRead(downPin) == HIGH){
         water();
 
         // Pauses stepper when near target to limit overshooting the target
-        if(abs(rpm-commandedRPM) < 10){
+        if(abs(rpm-commandedRPM) < 19){
           
-          if(abs(millis() - loadTime) > 3000){
+          if(millis() - loadTime > 3000){
             loadTime = millis();
             noTone(stepPin);
           }
           
-          else if(abs(millis() - loadTime) > 2000){
+          else if(millis() - loadTime > 2000){
             load();
           }
           
@@ -292,7 +301,7 @@ else if(digitalRead(downPin) == HIGH){
       else if(rpm < commandedRPM && digitalRead(limitSwitch) != LOW){
         Serial.println("rpm<commanded");
         water();
-        if(abs(rpm-commandedRPM) < 8){
+        if(abs(rpm-commandedRPM) < 19){
           
           if(abs(millis() - loadTime) > 3000){
             loadTime = millis();
@@ -467,31 +476,35 @@ void horsepower(){
 }
 
 void water(){
+  // Delays water on to "debounce" RPM threshold during hookup
   if(millis() - waterTime > 5000){
     if(rpm > 99){
-      waterStatus = 1;
-        //digitalWrite(waterPin, HIGH);
+        waterStatus = 1;
         waterTime = millis();
       }
       else {
         waterStatus = 0;
-        //digitalWrite(waterPin, LOW);
       }
+
+      // Water turns off in reversing mode; stays on in active mode
+      if(runMode == 0){ waterStatus = 0; }
+      if(runMode == 1){ waterStatus = 1; }
+      
       digitalWrite(waterPin, waterStatus);
   }}
 
 
 void load(){
     digitalWrite(dirPin, HIGH);
-    //Serial.println("load");
     
     // Increase multiplier for greater speed range; increase constant for higher min speed
-    int diff = 50 + abs(rpm - commandedRPM)*100;
+    int diff = 2000 + abs(rpm - commandedRPM)*100;
 
-    // Increase for higher speed limit
+    // Sets maximum speed
     if(diff > 20000){diff = 20000;}
-    
-    else if(diff <= 0){diff = 10;}
+
+    // Sets minimum speed
+    else if(diff <= 10){diff = 10;}
     tone(stepPin,diff);
 }
 
@@ -499,7 +512,7 @@ void unload(){
     digitalWrite(dirPin, LOW);    
     //Serial.println("unload");
 
-    int diff = 100 + abs(rpm - commandedRPM)*100;
+    int diff = 2000 + abs(rpm - commandedRPM)*100;
     if(diff > 20000){diff = 20000;}
     else if(diff <= 0){diff = 10;}
     tone(stepPin,diff);
