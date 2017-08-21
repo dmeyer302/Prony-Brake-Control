@@ -7,6 +7,7 @@ User inputs a desired RPM for the brake to turn and a servo on the machine loads
 * Load cell reading to enable horsepower display
 * Excel integration for data logging and display
 * Online (MQTT and Node-RED) live display
+* PID-controlled motion
 
 Video demonstration of this system:
 https://www.youtube.com/watch?v=0dWs8jQd-W4
