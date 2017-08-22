@@ -13,6 +13,7 @@
 #include <ResponsiveAnalogRead.h>
 #include <BME280I2C.h> //Press, Temp, Humid Sensor
 #include <ArduinoJson.h>
+#include <PID_v1.h>
 
 BME280I2C bme;
 
@@ -110,6 +111,12 @@ volatile int count = 0;//freqmeasure
 const byte resolution = 17; // pulses per revolution: 17 for PB, else for test
 unsigned long freqTime = 0;
 
+// PID Setup
+
+double setpoint, PIDinput, PIDoutput;
+double Kp = 2, Ki = 5, Kd = 1;
+PID myPID(&setpoint, &PIDoutput, &PIDinput, Kp, Ki, Kd, P_ON_M, DIRECT);
+
 volatile byte runMode = 2;
 
 
@@ -138,6 +145,7 @@ void setup() {
   Serial.print(F("Starting Prony Brake."));
   FreqMeasure.begin(); // Must use pin 3
   bme.begin();
+  myPID.SetMode(AUTOMATIC);
   u8g2.begin();
   u8g2.setDisplayRotation(U8G2_R1);
   waterTime = millis() + 10000L;
@@ -198,164 +206,107 @@ void setup() {
 }
 
 void loop() {
+  
   status();
+  getRPM();
+  water();
+  horsepower();
+  buildDisplay();
+  myPID.Compute();
+  //transmitData();
 
 
-
-  if (FreqMeasure.available()) {
-    freqTime = millis();
-    // average several readings together
-    sum = sum + FreqMeasure.read();
-    count = count + 1;
-    if (count >= resolution) {
-      //double freq2 = .0000001416666666 * (sum / count);
-      //Serial.print("freq2 is ");
-      //Serial.println(freq2);
-      float frequency = FreqMeasure.countToFrequency(sum / count);
-      Serial.print("Frequency is ");
-      Serial.println(frequency);
-      sum = 0;
-      count = 0;
-      rpm = (((float)frequency)*60)/resolution; // freq in hz, 60 s/min, cycles per revolution
-      Serial.print("RPM is ");
-      Serial.println(rpm);
+  if(digitalRead(upPin) == HIGH){
+    if(millis() - selectTime > 500){
+      setRPM += 5;
+      delay(80);
     }
   }
-
-  if(millis()-freqTime > 1000){
-    rpm = 0;
-  }
   
-water();
-buildDisplay();
-//transmitData();
-
-
-if(digitalRead(upPin) == HIGH){
-  if(millis() - selectTime > 500){
-    setRPM += 5;
-    delay(80);
+  else if(digitalRead(downPin) == HIGH){
+    if(millis() - selectTime > 500){
+      setRPM -= 5;
+      delay(80);
+    }
   }
-}
-
-else if(digitalRead(downPin) == HIGH){
-  if(millis() - selectTime > 500){
-    setRPM -= 5;
-    delay(80);
-  }
-}
 
 
  if (runMode == 0){ // Reversed/Reversing
 
-    if(digitalRead(limitSwitch) != LOW){
-
-      digitalWrite(dirPin, LOW);
-      water();
-      tone(stepPin,15000);
-      horsepower();
-      buildDisplay();
-    }
-
-    else if(digitalRead(limitSwitch) == LOW){
-      noTone(stepPin);
-      releaseStepper();
-      water();
-      horsepower();
-      buildDisplay();
-    }
-  }
-  
-  else if(runMode == 1){ // Active mode
-
-      if (rpm < 100){ //100 for pb, else for test
-        stopRun();
+      if(digitalRead(limitSwitch) != LOW){
+        digitalWrite(dirPin, LOW);
+        tone(stepPin,15000);
       }
- 
-      else if (rpm > commandedRPM /*&& rpm > minRPM*/){
-        Serial.println("rpm>commanded");
-        water();
-
-        // Pauses stepper when near target to limit overshooting the target
-        if(abs(rpm-commandedRPM) < 19){
+  
+      else if(digitalRead(limitSwitch) == LOW){
+        noTone(stepPin);
+        releaseStepper();
+      }
+    }
+  
+    else if(runMode == 1){ // Active mode
+  
+        if (rpm < 100){ //100 for pb, else for test
+          stopRun();
+        }
+   
+        else if (rpm > commandedRPM && rpm > minRPM){
+  
+          // Pauses stepper when near target to limit overshooting the target
+          if(abs(rpm-commandedRPM) < 19){
+            
+              if(millis() - loadTime > 3000){
+                loadTime = millis();
+                noTone(stepPin);
+              }
+              
+              else if(millis() - loadTime > 2000){
+                load();
+              }
+             }
           
-          if(millis() - loadTime > 3000){
-            loadTime = millis();
-            noTone(stepPin);
+          else{ load(); }
+        }
+      
+        else if(rpm < commandedRPM && digitalRead(limitSwitch) != LOW){
+          if(abs(rpm-commandedRPM) < 19){
+            
+            if(abs(millis() - loadTime) > 3000){
+              loadTime = millis();
+              noTone(stepPin);
+            }
+            
+            else if(abs(millis() - loadTime) > 2000){
+              unload();
+            }
+            
           }
           
-          else if(millis() - loadTime > 2000){
-            load();
-          }
-          
+          else{ unload(); }
+        }
+  
+        else if(digitalRead(limitSwitch) == LOW){ //reversed all the way to limit switch
+          noTone(stepPin);
+        }
+  
+        else{ // when rpm = commandedRPM
+          noTone(stepPin);
+        }
+  
+  
+        // Illuminates read (blue) indicator when RPM is within 2 from commanded
+        if(abs(rpm-commandedRPM) < 1){
+          digitalWrite(selectLED, HIGH);
         }
         
-        else{
-          load();
-          }
-          
-        horsepower();
-        buildDisplay();
-      }
-    
-      else if(rpm < commandedRPM && digitalRead(limitSwitch) != LOW){
-        Serial.println("rpm<commanded");
-        water();
-        if(abs(rpm-commandedRPM) < 19){
-          
-          if(abs(millis() - loadTime) > 3000){
-            loadTime = millis();
-            noTone(stepPin);
-          }
-          
-          else if(abs(millis() - loadTime) > 2000){
-          unload();
-          }
-          
-          }
+        else{digitalWrite(selectLED, LOW);}
         
-        else{
-          unload();
-          }
-        horsepower();
-        buildDisplay();
-      }
+    }
 
-      else if(digitalRead(limitSwitch) == LOW){ //reversed all the way to limit switch
+    else if (runMode == 2){ // Coasting, does not reverse
         noTone(stepPin);
-        water();
-        horsepower();
-        //getRPM();
-        buildDisplay();
-      }
-
-      else{ //rpm = commandedRPM
-        noTone(stepPin);
-        water();
-        horsepower();
-        buildDisplay();
-      }
-
-
-      //illuminates read light when RPM is within 2 from commanded
-      if(abs(rpm-commandedRPM) < 1){
-        digitalWrite(selectLED, HIGH);
-        horsepower();
-        buildDisplay();
-      }
-      else{digitalWrite(selectLED, LOW);}
-      
-  }
-
-  else if (runMode == 2){ // Coasting, does not reverse
-      noTone(stepPin);
-      releaseStepper();
-      water();
-      horsepower();
-      buildDisplay();
-  }
-
-
+        releaseStepper();
+    }
 }
 
 
@@ -371,26 +322,49 @@ rf69.send(sendPacket, packetLength);
 
 }*/
 
+void getRPM(){
+    if (FreqMeasure.available()) {
+  
+      freqTime = millis();
+      sum = sum + FreqMeasure.read();
+      count = count + 1;
+      
+      if (count >= resolution) {
+        float frequency = FreqMeasure.countToFrequency(sum / count);
+        sum = 0;
+        count = 0;
+        rpm = (((float)frequency)*60)/resolution; // freq in hz, 60 sec/min, cycles per revolution
+      }
+    }
+  
+    // freqTime comparison sets RPM to 0 if a pulse is not received in a certain amount of time.
+    // FreqMeasure is not able to measure 0 directly, so this code effectively times itself out and assumes brake is at 0.
+    if(millis()-freqTime > 1000){
+      rpm = 0;
+    }
+}
 
 // Flashes onboard status LED to indicate program has not frozen
 void status(){
-  if(statusBool && millis() - statusOn > 200){
-    statusOff = millis();
-    statusBool = 0;
-  }
-  else if(!statusBool && millis() - statusOff > 2000){
-    statusOn = millis();
-    statusBool = 1;
-  }
-  digitalWrite(statusLED, statusBool);
+    if(statusBool && millis() - statusOn > 200){
+      statusOff = millis();
+      statusBool = 0;
+    }
+    else if(!statusBool && millis() - statusOff > 2000){
+      statusOn = millis();
+      statusBool = 1;
+    }
+    digitalWrite(statusLED, statusBool);
 }
+
 
 void displayButton(){
   if(millis() - buttonTime > 200){
     buttonTime = millis();
     displaySelect++;
-    
-    if(displaySelect == 5){
+
+    // Loop display back to the beginning
+    if(displaySelect == 6){
       displaySelect = 1;
       }
     }}
@@ -590,6 +564,12 @@ void buildDisplay(){
         line1 = temp;
         line2 = pres;
       }
+
+      else if(displaySelect == 5){
+        u8g2.drawStr(0,10,"Kp");
+        u8g2.drawStr(0,40,"Ki");
+        u8g2.drawStr(0,70,"Kd");
+      }
     
     
     // Icons
@@ -612,19 +592,33 @@ void buildDisplay(){
     
       char buf2[4];
       char buf3[4];
+      char buf4[4];
       
       if(displaySelect == 4){
         sprintf(buf2, "%d", line1);
         sprintf(buf3, "%d", line2); // uses float for pressure
+        u8g2.drawStr(0,40,buf2);
+        u8g2.drawStr(0,95,buf3);
+      }
+
+      else if(displaySelect == 5){
+        sprintf(buf2,"%lf",Kp);
+        sprintf(buf3,"%lf",Ki);
+        sprintf(buf4,"%lf",Kd);
+
+        u8g2.drawStr(0,15,buf2);
+        //buf3
+        //buf4
       }
       
       else{
       sprintf(buf2, "%d", line1);
       sprintf(buf3, "%d", line2);
-      }
-      
       u8g2.drawStr(0,40,buf2);
       u8g2.drawStr(0,95,buf3);
+      }
+      
+      
       
       u8g2.sendBuffer();  
   
