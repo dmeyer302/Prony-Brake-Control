@@ -1,5 +1,5 @@
 # Prony Brake Control - pronybrake.org
-## Arduino-compatible sketch to automate a Prony Brake. Code optimized for Arduino / Teensy 3.5.
+## Arduino-compatible sketch to automate a Prony Brake. Code optimized for Teensy 3.5.
 
 User inputs a desired RPM for the brake to turn and a servo on the machine loads or unloads the prime mover until the brake is at that RPM.
 
