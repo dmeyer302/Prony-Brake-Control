@@ -3,6 +3,8 @@
 
 User inputs a desired RPM for the brake to turn and a servo on the machine loads or unloads the prime mover until the brake is at that RPM.
 
+Begin with Prony_Brake_Control.ino and be sure the other files get added as Arduino tabs.
+
 ## TODO:
 * Load cell reading to enable horsepower display
 * Excel integration for data logging and display
