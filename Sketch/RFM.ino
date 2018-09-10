@@ -8,7 +8,7 @@ rf69.send(sendPacket, packetLength);
 
 }*/
 
-void transmitData(){
+/*void transmitData(){
 
 //ArduinoJSON
   char data1[250];
@@ -33,7 +33,7 @@ void transmitData(){
 
 
 // RFM ** SWITCH TO SIMPLE RFM TEST, NOT RHRELIABLE
-  /*if (manager.available())
+  if (manager.available())
     {
       Serial.println("Manager available");
       // Wait for a message addressed to us from the client
@@ -50,6 +50,6 @@ void transmitData(){
         if (!manager.sendtoWait((unsigned char*)data1, sizeof(data1), from))
           Serial.println("sendtoWait failed");
       }
-    }*/
-}
+    }
+}*/
 

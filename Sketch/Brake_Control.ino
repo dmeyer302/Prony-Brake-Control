@@ -1,14 +1,19 @@
 void runModes(){
    if (runMode == 0){ // Reversed/Reversing
+    //Serial.print("limitSwitch is ");
+    //Serial.println(digitalRead(limitSwitch));
+    
 
-      if(digitalRead(limitSwitch) != LOW){
+      if(digitalRead(limitSwitch) != 0){
         digitalWrite(dirPin, LOW);
         tone(stepPin,15000);
+        
       }
   
-      else if(digitalRead(limitSwitch) == LOW){
+      else if(digitalRead(limitSwitch) == 0){
         noTone(stepPin);
         releaseStepper();
+        coastRun();
       }
     }
   
@@ -75,6 +80,38 @@ void runModes(){
         noTone(stepPin);
         releaseStepper();
     }
+
+    else if (runMode == 3){
+        
+        digitalWrite(dirPin, HIGH);
+        tone(stepPin, loadSpeed);
+        if(rpm <= minAutoRPM){
+          stopRun();
+        }
+
+        if(millis() - prevRPMTime > 1000){
+          
+          if( abs((prevRPM - rpm)) > 40){
+            loadSpeed = loadSpeed - 500;
+          }
+          else if( abs((prevRPM - rpm)) <= 2){
+            loadSpeed = loadSpeed + 500;
+          }
+
+          if(loadSpeed > maxLoadSpeed){
+            loadSpeed = maxLoadSpeed;
+          }
+          if(loadSpeed < 500){
+            loadSpeed = 500;
+          }
+          
+          prevRPM = rpm;
+          prevRPMTime = millis();
+          
+        }
+        
+      
+    }
 }
 
 
@@ -124,6 +161,7 @@ void getRPM(){
       count = count + 1;
       
       if (count >= resolution) {
+        //Serial.println("Available");
         float frequency = FreqMeasure.countToFrequency(sum / count);
         sum = 0;
         count = 0;
@@ -141,9 +179,9 @@ void getRPM(){
 
 void horsepower(){
   //analogOne.update();
-  analogTwo.update();
+  //analogTwo.update();
   //rpm = analogOne.getValue();
-  force = analogTwo.getValue();
+  //force = analogTwo.getValue();
   //rpm = analogRead(A1);
   hp = (force * armLength * rpm) / 5252;
 }

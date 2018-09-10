@@ -52,17 +52,20 @@ void buildDisplay(){
       }
 
       else if(displaySelect == 4){
-        getBME();
+        //getBME();
         u8g2.drawStr(0,10,"Temperature");
         u8g2.drawStr(0,65,"Pressure");
         line1 = temp;
         line2 = pres;
       }
 
-      else if(displaySelect == 5){
-        u8g2.drawStr(0,10,"Kp");
-        u8g2.drawStr(0,40,"Ki");
-        u8g2.drawStr(0,70,"Kd");
+      else if(displaySelect == 5){ // Tare scale
+        u8g2.drawStr(6,10,"i  Press SEL");
+        u8g2.drawStr(0,25,"to tare scale");
+        u8g2.drawStr(0,60,"FORCE:");
+        line2 = force;
+        u8g2.drawLine(0,38,64,38);
+        u8g2.drawCircle(6,6,6,U8G2_DRAW_ALL);
       }
     
     
@@ -86,7 +89,7 @@ void buildDisplay(){
     
       char buf2[4];
       char buf3[4];
-      char buf4[4];
+      //char buf4[4];
       
       if(displaySelect == 4){
         sprintf(buf2, "%d", line1);
@@ -96,13 +99,8 @@ void buildDisplay(){
       }
 
       else if(displaySelect == 5){
-        sprintf(buf2,"%lf",Kp);
-        sprintf(buf3,"%lf",Ki);
-        sprintf(buf4,"%lf",Kd);
-
-        u8g2.drawStr(0,15,buf2);
-        //buf3
-        //buf4
+        sprintf(buf2, "%d", line2);
+        u8g2.drawStr(0,90,buf2);
       }
       
       else{

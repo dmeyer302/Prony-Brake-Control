@@ -1,4 +1,4 @@
- /*  
+     /*  
   *  Prony Brake Control Software by Daniel Meyer
   *  Project started April 2017
   *  
@@ -13,12 +13,17 @@
 #include <ResponsiveAnalogRead.h>
 #include <BME280I2C.h> //Press, Temp, Humid Sensor, BME280 by Tyler Glenn
 #include <ArduinoJson.h>
-#include <PID_v1.h>
+#include <HX711.h>
+#include <movingAvg.h>
+//#include <PID_v1.h>
 
 BME280I2C bme;
 
 U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, U8X8_PIN_NONE); // 128x64 OLED
 
+HX711 scale(33, 34); // 33 = DOUT; 34 = CLK
+
+movingAvg scaleAverage(10); // scale average
 
 //RFM69 Setup
 /*#include <SPI.h>
@@ -69,6 +74,7 @@ const byte dirPin = 23;
 const byte stepPin = 22;
 const byte disableStepper = 21;
 const byte waterPin = 31;
+const byte tachPin = 29;
 
 // Constants
 const int fastDelay = 100000; // microseconds
@@ -76,16 +82,27 @@ const int medDelay = 200000;
 const int slowDelay = 500000;
 const byte minRPM = 100;
 const float armLength = 5.25; // ft
+int calibration_factor = -5080; // Load Cell; make more negative if program reads higher than actual -5080 established 9 Sep 2018
 
 // Variables
 bool statusBool = 0;
 unsigned long statusOn = 0;
 unsigned long statusOff = 0;
 
+  // runMode = 3
+  unsigned int loadSpeed = 5000;  // Frequency used with tone() to load the brake
+  const int maxLoadSpeed = 12000;
+  unsigned int prevRPM = 0;       // For derivative checking in runMode = 3
+  unsigned long prevRPMTime = 0;
+  const int minAutoRPM = 20;
+
+unsigned long sendTime = 0; // Time comm string was sent to Serial, see sendData()
+char sendString[6];
 unsigned long buttonTime = 0;
 unsigned long loadTime = 0;
+unsigned long scaleTime = 0;
 float rpm = 0;
-int force = 0;
+float force = 0;
 double hp = 0;
 byte waterStatus = 0;
 volatile unsigned long waterTime = 0;
@@ -94,7 +111,7 @@ volatile bool selectBit = 0;
 
 volatile int commandedRPM = 0;
 volatile int setRPM = 0;
-volatile byte displaySelect = 4;
+volatile byte displaySelect = 5;
 volatile byte previousDisplay = 0;
 
 float temp = 0;
@@ -115,7 +132,7 @@ unsigned long freqTime = 0;
 
 double setpoint, PIDinput, PIDoutput;
 double Kp = 2, Ki = 5, Kd = 1;
-PID myPID(&setpoint, &PIDoutput, &PIDinput, Kp, Ki, Kd, P_ON_M, DIRECT);
+//PID myPID(&setpoint, &PIDoutput, &PIDinput, Kp, Ki, Kd, P_ON_M, DIRECT);
 
 volatile byte runMode = 2;
 
@@ -138,6 +155,10 @@ void downArrow();
 void transmitData();
 void runModes();
 void getRPM();
+void mapTach();
+void horsepower();
+void readScale();
+void statusFn();
 
 
 
@@ -147,8 +168,9 @@ void setup() {
   Serial.print(F("Starting Prony Brake."));
   FreqMeasure.begin(); // Must use pin 3
   bme.begin();
-  myPID.SetMode(AUTOMATIC);
+  //myPID.SetMode(AUTOMATIC);
   u8g2.begin();
+  scaleAverage.begin();
   u8g2.setDisplayRotation(U8G2_R1);
   waterTime = millis() + 10000L;
 
@@ -177,16 +199,31 @@ void setup() {
   attachInterrupt(digitalPinToInterrupt(stopPin), stopRun, RISING);
   attachInterrupt(digitalPinToInterrupt(upPin), upArrow, RISING);
   attachInterrupt(digitalPinToInterrupt(downPin), downArrow, RISING);
-  attachInterrupt(digitalPinToInterrupt(selectPin), select, RISING);
+  attachInterrupt(digitalPinToInterrupt(selectPin), selectFn, RISING);
   attachInterrupt(digitalPinToInterrupt(releasePin), coastRun, RISING);
   attachInterrupt(digitalPinToInterrupt(displayPin), displayButton, RISING);
   //attachInterrupt(digitalPinToInterrupt(rpmPin), getRPM, RISING);
+
+  // Rapidly flashes status LED to indicate reboot
+  for(int i = 0; i < 8; i++){
+    digitalWrite(statusLED, 1);
+    delay(40);
+    digitalWrite(statusLED,0);
+    delay(40);
+  }
 
   u8g2.clearBuffer();
   u8g2.drawBox(0,0,64,128);
   u8g2.sendBuffer();
 
   delay(150);
+
+  u8g2.clearBuffer();
+  u8g2.drawCircle(15,64,15,U8G2_DRAW_ALL);
+  u8g2.drawLine(15,49,60,64);
+  u8g2.drawLine(15,79,60,64);
+  u8g2.drawLine(60,64,60,75);
+  u8g2.sendBuffer();
 
   digitalWrite(runLED, HIGH);
   digitalWrite(stopLED, HIGH);
@@ -205,17 +242,23 @@ void setup() {
   // range from 14-20 for power
 
   coastRun();
+  scale.set_scale(calibration_factor);
+  scale.tare();
 }
 
 void loop() {
   
   status();
   getRPM();
+  readScale();
   water();
   horsepower();
   buildDisplay();
-  myPID.Compute();
   runModes();
+  getBME();
+  //Serial.println(runMode);
+  //sendData();
+  //mapTach(rpm);
   //transmitData();
 
 
@@ -252,7 +295,7 @@ void stopRun(){
 void startRun(){
   noTone(stepPin);
   delay(200);
-  runMode = 1;
+  runMode = 3;
   initializeRPM();
   digitalWrite(stopLED, LOW);
   digitalWrite(runLED, HIGH);
